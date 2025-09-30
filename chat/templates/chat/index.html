@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Gemini Voice Chat</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f8f9fa; }
+    h2 { color: #333; }
+    #chat { border: 1px solid #ddd; padding: 10px; height: 300px; overflow-y: auto; background: #fff; margin-bottom: 20px; }
+    .you { color: #007bff; margin: 5px 0; }
+    .ai { color: #28a745; margin: 5px 0; }
+    button { padding: 10px 20px; font-size: 16px; background: #007bff; color: #fff; border: none; border-radius: 6px; cursor: pointer; margin-right: 10px; }
+    button:hover { background: #0056b3; }
+  </style>
+</head>
+<body>
+<h2>🎤 Gemini Live Voice Chat</h2>
+
+<div id="chat"></div>
+<button id="startBtn">Start Talking</button>
+<button id="stopBtn">Stop Talking</button>
+
+<script>
+let socket = new WebSocket("ws://127.0.0.1:8000/ws/voice/");
+let recognition = null;
+let isListening = false;
+let currentAudio = null;
+
+// Append message to chat
+function addMessage(sender, text) {
+  const chatBox = document.getElementById("chat");
+  chatBox.innerHTML += `<p class="${sender}"><b>${sender === "you" ? "You" : "AI"}:</b> ${text}</p>`;
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+// Play AI audio and allow interruption
+function playAudio(url) {
+  if (currentAudio) {
+    currentAudio.pause(); // stop current audio
+  }
+  currentAudio = new Audio(window.location.origin + url); // ensure full URL
+  currentAudio.play().catch(e => console.log("Autoplay blocked:", e));
+}
+
+// Start speech recognition
+function startListening() {
+  if (isListening) return;
+  recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+  recognition.lang = "en-US";
+  recognition.interimResults = false;
+  recognition.maxAlternatives = 1;
+  isListening = true;
+
+  recognition.onresult = (event) => {
+    const text = event.results[0][0].transcript;
+    addMessage("you", text);
+
+    // Stop current AI audio if user speaks mid-reply
+    if (currentAudio) currentAudio.pause();
+
+    // Send recognized text to Django WebSocket
+    socket.send(JSON.stringify({ message: text }));
+
+    // Continue listening automatically
+    if (isListening) recognition.start();
+  };
+
+  recognition.onend = () => {
+    if (isListening) recognition.start(); // always-on
+  };
+
+  recognition.onerror = (event) => {
+    console.error("Recognition error:", event.error);
+  };
+
+  recognition.start();
+}
+
+// Stop speech recognition
+function stopListening() {
+  isListening = false;
+  if (recognition) {
+    recognition.stop();
+    recognition = null;
+  }
+  if (currentAudio) currentAudio.pause();
+}
+
+// WebSocket events
+socket.onopen = () => console.log("✅ WebSocket connected");
+socket.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  addMessage("ai", data.reply_text);
+  playAudio(data.reply_audio);
+};
+socket.onerror = (e) => console.error("WebSocket error:", e);
+
+// Buttons
+document.getElementById("startBtn").onclick = startListening;
+document.getElementById("stopBtn").onclick = stopListening;
+</script>
+</body>
+</html>
