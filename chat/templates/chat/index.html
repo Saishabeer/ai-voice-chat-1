@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Gemini Voice Chat</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎤</text></svg>">
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; background: #f8f9fa; }
     h2 { color: #333; }
@@ -12,13 +13,18 @@
     button { padding: 10px 20px; font-size: 16px; background: #007bff; color: #fff; border: none; border-radius: 6px; cursor: pointer; margin-right: 10px; }
     button:hover { background: #0056b3; }
     button:disabled { background: #6c757d; cursor: not-allowed; }
+    .recording { background: #dc3545 !important; animation: pulse 1.5s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
   </style>
 </head>
 <body>
 <h2>🎤 Gemini Live Voice Chat</h2>
 
 <div id="chat"></div>
-<button id="talkBtn" disabled>Hold to Talk</button>
+<button id="talkBtn">🎙️ Start Live Chat</button>
 
 <script>
 let socket = new WebSocket("ws://127.0.0.1:8000/ws/voice/");
@@ -29,6 +35,7 @@ let microphone;
 let processor;
 let audioQueue = [];
 let isPlaying = false;
+let isRecording = false;
 
 const talkButton = document.getElementById('talkBtn');
 
@@ -68,58 +75,54 @@ function resampleTo16kHz(audioBuffer, sourceSampleRate) {
     return result;
 }
 
-// Start recording when the button is pressed
-talkButton.addEventListener('mousedown', async () => {
-    if (microphone) return; // Already recording
-
-    // Initialize AudioContext with default sample rate for better compatibility
-    if (!audioContext) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { 
-        sampleRate: 16000,
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true
-    }});
-    
-    microphone = audioContext.createMediaStreamSource(stream);
-    processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-    processor.onaudioprocess = (e) => {
-        if (socket.readyState === WebSocket.OPEN) {
-            const inputData = e.inputBuffer.getChannelData(0);
-            // Resample to 16kHz for sending
-            const resampled = resampleTo16kHz(inputData, audioContext.sampleRate);
-            // Convert to 16-bit PCM
-            const pcmData = floatTo16BitPCM(resampled);
-            socket.send(pcmData);
+// Start/Stop recording on click (toggle)
+talkButton.addEventListener('click', async () => {
+    if (!isRecording) {
+        // Start recording
+        if (!audioContext) {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
         }
-    };
 
-    microphone.connect(processor);
-    processor.connect(audioContext.destination);
-    
-    talkButton.textContent = '🎙️ Listening...';
-    talkButton.style.background = '#dc3545';
-});
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { 
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true
+        }});
+        
+        microphone = audioContext.createMediaStreamSource(stream);
+        processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-// Stop recording when the button is released
-talkButton.addEventListener('mouseup', () => {
-    if (microphone) {
-        microphone.disconnect();
-        processor.disconnect();
-        microphone.mediaStream.getTracks().forEach(track => track.stop());
-        microphone = null;
-        processor = null;
-        talkButton.textContent = 'Hold to Talk';
-        talkButton.style.background = '#007bff';
+        processor.onaudioprocess = (e) => {
+            if (socket.readyState === WebSocket.OPEN && isRecording) {
+                const inputData = e.inputBuffer.getChannelData(0);
+                const resampled = resampleTo16kHz(inputData, audioContext.sampleRate);
+                const pcmData = floatTo16BitPCM(resampled);
+                socket.send(pcmData);
+            }
+        };
+
+        microphone.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        isRecording = true;
+        talkButton.textContent = '🔴 End Live Chat';
+        talkButton.classList.add('recording');
+    } else {
+        // Stop recording
+        if (microphone) {
+            microphone.disconnect();
+            processor.disconnect();
+            microphone.mediaStream.getTracks().forEach(track => track.stop());
+            microphone = null;
+            processor = null;
+        }
+        
+        isRecording = false;
+        talkButton.textContent = '🎙️ Start Live Chat';
+        talkButton.classList.remove('recording');
     }
 });
-
-// Prevent context menu on right click
-talkButton.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // --- Audio Playback Logic ---
 
@@ -131,7 +134,6 @@ async function playNextInQueue() {
     const pcmData = audioQueue.shift();
     
     try {
-        // Convert PCM to AudioBuffer
         const audioBuffer = await pcmToAudioBuffer(pcmData);
         const source = audioContext.createBufferSource();
         source.buffer = audioBuffer;
@@ -158,7 +160,6 @@ async function pcmToAudioBuffer(pcmData) {
         samples[i] = int16 / (int16 < 0 ? 0x8000 : 0x7FFF);
     }
     
-    // Gemini sends audio at 24kHz sample rate
     const audioBuffer = audioContext.createBuffer(1, samples.length, 24000);
     audioBuffer.getChannelData(0).set(samples);
     return audioBuffer;
@@ -183,6 +184,10 @@ socket.onerror = (e) => console.error("❌ WebSocket error:", e);
 socket.onclose = () => {
     console.log("🔌 WebSocket disconnected");
     talkButton.disabled = true;
+    if (isRecording) {
+        // Auto-stop recording if connection closes
+        talkButton.click();
+    }
 };
 </script>
 </body>
