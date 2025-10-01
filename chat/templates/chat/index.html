@@ -37,7 +37,12 @@ let audioQueue = [];
 let isPlaying = false;
 let isRecording = false;
 
+// Transcript buffering
+let currentUserMessage = null;
+let currentAiMessage = null;
+
 const talkButton = document.getElementById('talkBtn');
+const chatDiv = document.getElementById('chat');
 
 // Convert Float32Array to 16-bit PCM
 function floatTo16BitPCM(float32Array) {
@@ -175,20 +180,42 @@ socket.onmessage = (e) => {
     // Handle text messages (transcripts)
     if (typeof e.data === 'string') {
         const data = JSON.parse(e.data);
-        const chatDiv = document.getElementById('chat');
         
         if (data.type === 'user_transcript') {
-            const userMsg = document.createElement('div');
-            userMsg.className = 'you';
-            userMsg.innerHTML = `<strong>You:</strong> ${data.text}`;
-            chatDiv.appendChild(userMsg);
-            chatDiv.scrollTop = chatDiv.scrollHeight; // Auto-scroll
+            // Create or update user message
+            if (!currentUserMessage) {
+                currentUserMessage = document.createElement('div');
+                currentUserMessage.className = 'you';
+                currentUserMessage.innerHTML = `<strong>You:</strong> `;
+                chatDiv.appendChild(currentUserMessage);
+            }
+            // Append new text to existing message
+            const currentText = currentUserMessage.textContent.replace('You: ', '');
+            currentUserMessage.innerHTML = `<strong>You:</strong> ${currentText}${data.text}`;
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+            
+            // Mark user message as complete after a short delay
+            setTimeout(() => {
+                currentUserMessage = null;
+            }, 1000);
+            
         } else if (data.type === 'ai_transcript') {
-            const aiMsg = document.createElement('div');
-            aiMsg.className = 'ai';
-            aiMsg.innerHTML = `<strong>Rishi:</strong> ${data.text}`;
-            chatDiv.appendChild(aiMsg);
-            chatDiv.scrollTop = chatDiv.scrollHeight; // Auto-scroll
+            // Create or update AI message
+            if (!currentAiMessage) {
+                currentAiMessage = document.createElement('div');
+                currentAiMessage.className = 'ai';
+                currentAiMessage.innerHTML = `<strong>Rishi:</strong> `;
+                chatDiv.appendChild(currentAiMessage);
+            }
+            // Append new text to existing message
+            const currentText = currentAiMessage.textContent.replace('Rishi: ', '');
+            currentAiMessage.innerHTML = `<strong>Rishi:</strong> ${currentText}${data.text}`;
+            chatDiv.scrollTop = chatDiv.scrollHeight;
+            
+            // Mark AI message as complete after a short delay
+            setTimeout(() => {
+                currentAiMessage = null;
+            }, 1500);
         }
     }
     // Handle binary audio data
