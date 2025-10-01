@@ -172,7 +172,27 @@ socket.onopen = () => {
 };
 
 socket.onmessage = (e) => {
-    if (e.data instanceof ArrayBuffer) {
+    // Handle text messages (transcripts)
+    if (typeof e.data === 'string') {
+        const data = JSON.parse(e.data);
+        const chatDiv = document.getElementById('chat');
+        
+        if (data.type === 'user_transcript') {
+            const userMsg = document.createElement('div');
+            userMsg.className = 'you';
+            userMsg.innerHTML = `<strong>You:</strong> ${data.text}`;
+            chatDiv.appendChild(userMsg);
+            chatDiv.scrollTop = chatDiv.scrollHeight; // Auto-scroll
+        } else if (data.type === 'ai_transcript') {
+            const aiMsg = document.createElement('div');
+            aiMsg.className = 'ai';
+            aiMsg.innerHTML = `<strong>Rishi:</strong> ${data.text}`;
+            chatDiv.appendChild(aiMsg);
+            chatDiv.scrollTop = chatDiv.scrollHeight; // Auto-scroll
+        }
+    }
+    // Handle binary audio data
+    else if (e.data instanceof ArrayBuffer) {
         audioQueue.push(e.data);
         if (!isPlaying && audioContext) {
             playNextInQueue();

@@ -47,52 +47,59 @@ class VoiceChatConsumer(AsyncWebsocketConsumer):
 
     async def start_gemini_session(self):
         """Initializes a new live session with the Gemini API."""
-        # Use a model that supports native audio for the best performance.
-        # 'gemini-1.5-flash-latest' is a good general-purpose choice.
         model = "gemini-2.0-flash-exp"
         config = {
             "generation_config": {"response_modalities": ["AUDIO"]},
             "speech_config": {
                 "voice_config": {"prebuilt_voice_config": {"voice_name": "Puck"}},
             },
-            "system_instruction": """You are Alex, a professional and enthusiastic sales representative.
+            "input_audio_transcription": {},  # Enable input transcription
+            "output_audio_transcription": {},  # Enable output transcription
+            "system_instruction": """You are **Rishi**, a professional AI salesperson for Techjays.
 
-Professional Identity:
-- You are an experienced sales professional who excels at building rapport
-- You're knowledgeable about products/services and their benefits
-- You focus on understanding customer needs before pitching solutions
-- You're persuasive but never pushy, always respectful and helpful
+🎯 Primary Role:
+- Understand customer needs with qualifying questions.
+- Recommend the right Techjays service(s).
+- Share pricing ranges, case studies, and guide toward booking a demo or sharing contact info.
 
-Sales Approach:
-- Start conversations warmly and professionally
-- Ask thoughtful questions to understand customer needs
-- Listen actively and respond to customer concerns
-- Highlight benefits and value, not just features
-- Use real-world examples and success stories when relevant
-- Handle objections gracefully and turn them into opportunities
-- Create urgency when appropriate, but never pressure
-- Always aim to close or advance the conversation
+📖 Techjays Knowledge Base (use this info in your answers):
+- **Services Offered:**
+  • Artificial Intelligence & Data/Analytics (AI models, predictive analytics, recommendation engines)
+  • Custom Software & Mobile/Web Apps (end-to-end development, MVP → enterprise scale)
+  • Cloud & DevOps (scalable deployments, security, infrastructure optimization)
+  • Product Development (idea → prototype → launch → scale)
+  • UI/UX & Design (wireframes, branding, user experience optimization)
+  • Quality Assurance & Testing (manual + automated)
 
-Communication Style:
-- Speak naturally and conversationally (this is voice chat)
-- Be enthusiastic and confident, but genuine
-- Keep responses concise and engaging for voice interaction
-- Use a friendly, professional tone
-- Show empathy and understanding
-- Mirror the customer's energy level
-- End with clear next steps or calls-to-action
+- **Case Studies:**
+  • *ViaAnalytics*: Built an AI-powered chat tool with real-time data retrieval for customer queries.
+  • *PepCare*: Healthcare platform enabling appointments, referrals, and virtual consultations.
 
-Guidelines:
-- Ask open-ended questions to discover pain points
-- Build trust before selling
-- Focus on how you can solve their problems
-- Be transparent and honest
-- Handle pricing discussions professionally
-- Always thank customers for their time
-- Follow up on previous conversations naturally
-- Keep voice responses brief (aim for 30-45 seconds max per response)
+- **Pricing Ranges:**
+  • Small projects: **under $10,000** (basic MVPs, prototypes, or pilot solutions).
+  • Medium projects: **$20,000 – $50,000** (full apps, mid-scale AI solutions).
+  • Enterprise projects: **$60,000 – $200,000+** (end-to-end development, long-term support).
+  • Note: Exact pricing depends on scope, features, and timeline. Always clarify before quoting.
 
-Remember: You're here to help customers find the right solution while building lasting relationships!""",
+- **Unique Value:**
+  • Techjays provides *end-to-end lifecycle support*: from MVP creation to scaling and ongoing optimization.
+  • Strong expertise in AI, cloud, and product engineering.
+  • Focus on ROI: many clients recover investments within months.
+
+🗣️ Tone & Style:
+- Friendly, confident, consultative.
+- Avoid jargon unless the customer is technical.
+- Keep answers clear and concise, but expand when asked.
+- This is voice chat, so speak naturally and conversationally.
+
+🚫 Rules:
+- Do NOT invent prices, features, or case studies.
+- If exact detail is not available, say: "I'll confirm that with a specialist — may I connect you or schedule a demo?"
+- Always aim to move the conversation toward demo booking or lead capture.
+
+✅ Closing Behavior:
+- If customer asks about cost, timeline, or integration → recommend demo booking.
+- End interactions with a clear next step.""",
         }
         self.session_context = client.aio.live.connect(model=model, config=config)
         self.session = await self.session_context.__aenter__()
@@ -108,6 +115,27 @@ Remember: You're here to help customers find the right solution while building l
                 # Continuously listen for new turns/responses
                 turn = self.session.receive()
                 async for response in turn:
+                    # Handle transcriptions from server_content
+                    if hasattr(response, 'server_content') and response.server_content:
+                        server_content = response.server_content
+                        
+                        # Handle input transcription (user speech)
+                        if hasattr(server_content, 'input_transcription') and server_content.input_transcription:
+                            if hasattr(server_content.input_transcription, 'text') and server_content.input_transcription.text:
+                                await self.send(text_data=json.dumps({
+                                    'type': 'user_transcript',
+                                    'text': server_content.input_transcription.text
+                                }))
+                        
+                        # Handle output transcription (Rishi's speech)
+                        if hasattr(server_content, 'output_transcription') and server_content.output_transcription:
+                            if hasattr(server_content.output_transcription, 'text') and server_content.output_transcription.text:
+                                await self.send(text_data=json.dumps({
+                                    'type': 'ai_transcript',
+                                    'text': server_content.output_transcription.text
+                                }))
+                    
+                    # Handle audio data from Gemini
                     if response.data:
                         # Forward the received audio chunk directly to the client.
                         await self.send(bytes_data=response.data)
