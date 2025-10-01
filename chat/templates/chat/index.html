@@ -11,93 +11,179 @@
     .ai { color: #28a745; margin: 5px 0; }
     button { padding: 10px 20px; font-size: 16px; background: #007bff; color: #fff; border: none; border-radius: 6px; cursor: pointer; margin-right: 10px; }
     button:hover { background: #0056b3; }
+    button:disabled { background: #6c757d; cursor: not-allowed; }
   </style>
 </head>
 <body>
 <h2>🎤 Gemini Live Voice Chat</h2>
 
 <div id="chat"></div>
-<button id="startBtn">Start Talking</button>
-<button id="stopBtn">Stop Talking</button>
+<button id="talkBtn" disabled>Hold to Talk</button>
 
 <script>
 let socket = new WebSocket("ws://127.0.0.1:8000/ws/voice/");
-let recognition = null;
-let isListening = false;
-let currentAudio = null;
+socket.binaryType = 'arraybuffer';
 
-// Append message to chat
-function addMessage(sender, text) {
-  const chatBox = document.getElementById("chat");
-  chatBox.innerHTML += `<p class="${sender}"><b>${sender === "you" ? "You" : "AI"}:</b> ${text}</p>`;
-  chatBox.scrollTop = chatBox.scrollHeight;
+let audioContext;
+let microphone;
+let processor;
+let audioQueue = [];
+let isPlaying = false;
+
+const talkButton = document.getElementById('talkBtn');
+
+// Convert Float32Array to 16-bit PCM
+function floatTo16BitPCM(float32Array) {
+    const buffer = new ArrayBuffer(float32Array.length * 2);
+    const view = new DataView(buffer);
+    let offset = 0;
+    for (let i = 0; i < float32Array.length; i++, offset += 2) {
+        let s = Math.max(-1, Math.min(1, float32Array[i]));
+        view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+    return buffer;
 }
 
-// Play AI audio and allow interruption
-function playAudio(url) {
-  if (currentAudio) {
-    currentAudio.pause(); // stop current audio
-  }
-  currentAudio = new Audio(window.location.origin + url); // ensure full URL
-  currentAudio.play().catch(e => console.log("Autoplay blocked:", e));
+// Resample audio from source rate to 16kHz
+function resampleTo16kHz(audioBuffer, sourceSampleRate) {
+    if (sourceSampleRate === 16000) {
+        return audioBuffer;
+    }
+    const ratio = sourceSampleRate / 16000;
+    const newLength = Math.round(audioBuffer.length / ratio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < result.length) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+        let accum = 0, count = 0;
+        for (let i = offsetBuffer; i < nextOffsetBuffer && i < audioBuffer.length; i++) {
+            accum += audioBuffer[i];
+            count++;
+        }
+        result[offsetResult] = accum / count;
+        offsetResult++;
+        offsetBuffer = nextOffsetBuffer;
+    }
+    return result;
 }
 
-// Start speech recognition
-function startListening() {
-  if (isListening) return;
-  recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
-  recognition.lang = "en-US";
-  recognition.interimResults = false;
-  recognition.maxAlternatives = 1;
-  isListening = true;
+// Start recording when the button is pressed
+talkButton.addEventListener('mousedown', async () => {
+    if (microphone) return; // Already recording
 
-  recognition.onresult = (event) => {
-    const text = event.results[0][0].transcript;
-    addMessage("you", text);
+    // Initialize AudioContext with default sample rate for better compatibility
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    }
 
-    // Stop current AI audio if user speaks mid-reply
-    if (currentAudio) currentAudio.pause();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { 
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true
+    }});
+    
+    microphone = audioContext.createMediaStreamSource(stream);
+    processor = audioContext.createScriptProcessor(4096, 1, 1);
 
-    // Send recognized text to Django WebSocket
-    socket.send(JSON.stringify({ message: text }));
+    processor.onaudioprocess = (e) => {
+        if (socket.readyState === WebSocket.OPEN) {
+            const inputData = e.inputBuffer.getChannelData(0);
+            // Resample to 16kHz for sending
+            const resampled = resampleTo16kHz(inputData, audioContext.sampleRate);
+            // Convert to 16-bit PCM
+            const pcmData = floatTo16BitPCM(resampled);
+            socket.send(pcmData);
+        }
+    };
 
-    // Continue listening automatically
-    if (isListening) recognition.start();
-  };
+    microphone.connect(processor);
+    processor.connect(audioContext.destination);
+    
+    talkButton.textContent = '🎙️ Listening...';
+    talkButton.style.background = '#dc3545';
+});
 
-  recognition.onend = () => {
-    if (isListening) recognition.start(); // always-on
-  };
+// Stop recording when the button is released
+talkButton.addEventListener('mouseup', () => {
+    if (microphone) {
+        microphone.disconnect();
+        processor.disconnect();
+        microphone.mediaStream.getTracks().forEach(track => track.stop());
+        microphone = null;
+        processor = null;
+        talkButton.textContent = 'Hold to Talk';
+        talkButton.style.background = '#007bff';
+    }
+});
 
-  recognition.onerror = (event) => {
-    console.error("Recognition error:", event.error);
-  };
+// Prevent context menu on right click
+talkButton.addEventListener('contextmenu', (e) => e.preventDefault());
 
-  recognition.start();
+// --- Audio Playback Logic ---
+
+async function playNextInQueue() {
+    if (isPlaying || audioQueue.length === 0) {
+        return;
+    }
+    isPlaying = true;
+    const pcmData = audioQueue.shift();
+    
+    try {
+        // Convert PCM to AudioBuffer
+        const audioBuffer = await pcmToAudioBuffer(pcmData);
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+        source.onended = () => {
+            isPlaying = false;
+            playNextInQueue();
+        };
+        source.start(0);
+    } catch (e) {
+        console.error("Error playing audio:", e);
+        isPlaying = false;
+        playNextInQueue();
+    }
 }
 
-// Stop speech recognition
-function stopListening() {
-  isListening = false;
-  if (recognition) {
-    recognition.stop();
-    recognition = null;
-  }
-  if (currentAudio) currentAudio.pause();
+// Convert PCM data to AudioBuffer (Gemini sends 24kHz audio)
+async function pcmToAudioBuffer(pcmData) {
+    const dataView = new DataView(pcmData);
+    const samples = new Float32Array(dataView.byteLength / 2);
+    
+    for (let i = 0; i < samples.length; i++) {
+        const int16 = dataView.getInt16(i * 2, true);
+        samples[i] = int16 / (int16 < 0 ? 0x8000 : 0x7FFF);
+    }
+    
+    // Gemini sends audio at 24kHz sample rate
+    const audioBuffer = audioContext.createBuffer(1, samples.length, 24000);
+    audioBuffer.getChannelData(0).set(samples);
+    return audioBuffer;
 }
 
 // WebSocket events
-socket.onopen = () => console.log("✅ WebSocket connected");
-socket.onmessage = (e) => {
-  const data = JSON.parse(e.data);
-  addMessage("ai", data.reply_text);
-  playAudio(data.reply_audio);
+socket.onopen = () => {
+    console.log("✅ WebSocket connected");
+    talkButton.disabled = false;
 };
-socket.onerror = (e) => console.error("WebSocket error:", e);
 
-// Buttons
-document.getElementById("startBtn").onclick = startListening;
-document.getElementById("stopBtn").onclick = stopListening;
+socket.onmessage = (e) => {
+    if (e.data instanceof ArrayBuffer) {
+        audioQueue.push(e.data);
+        if (!isPlaying && audioContext) {
+            playNextInQueue();
+        }
+    }
+};
+
+socket.onerror = (e) => console.error("❌ WebSocket error:", e);
+socket.onclose = () => {
+    console.log("🔌 WebSocket disconnected");
+    talkButton.disabled = true;
+};
 </script>
 </body>
 </html>
