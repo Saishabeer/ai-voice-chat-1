@@ -3,10 +3,14 @@ import asyncio
 from channels.generic.websocket import AsyncWebsocketConsumer
 from google import genai
 from google.genai import types
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 client = genai.Client(
-    api_key="AIzaSyCoXPhi3IP7zfYg2_k49P-UjKiFqnv6y7E",
+    api_key=os.getenv("API_KEY"),
     http_options={"api_version": "v1alpha"}
 )
 
@@ -55,7 +59,7 @@ class VoiceChatConsumer(AsyncWebsocketConsumer):
             },
             "input_audio_transcription": {},  # Enable input transcription
             "output_audio_transcription": {},  # Enable output transcription
-            "system_instruction": """You are **Rishi**, a professional AI salesperson for Techjays.
+            "system_instruction": '''You are **Rishi**, a professional AI salesperson for Techjays.
 
 🎯 Primary Role:
 - Understand customer needs with qualifying questions.
@@ -99,7 +103,7 @@ class VoiceChatConsumer(AsyncWebsocketConsumer):
 
 ✅ Closing Behavior:
 - If customer asks about cost, timeline, or integration → recommend demo booking.
-- End interactions with a clear next step.""",
+- End interactions with a clear next step.'''
         }
         self.session_context = client.aio.live.connect(model=model, config=config)
         self.session = await self.session_context.__aenter__()

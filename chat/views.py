@@ -4,10 +4,12 @@ import os, uuid
 import google.generativeai as genai
 from gtts import gTTS
 import speech_recognition as sr
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
-genai.configure(api_key="AIzaSyCoXPhi3IP7zfYg2_k49P-UjKiFqnv6y7E")
-
+genai.configure(api_key=os.getenv("API_KEY"))
 
 
 def chat_page(request):
@@ -30,7 +32,7 @@ def chat_page(request):
         user_text = r.recognize_google(audio)
 
         # 2️⃣ Gemini text reply
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        model = genai.GenerativeModel("gemini-pro")
         response = model.generate_content(user_text)
         reply_text = response.text
 
