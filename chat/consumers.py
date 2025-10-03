@@ -118,6 +118,7 @@ class VoiceChatConsumer(AsyncWebsocketConsumer):
             while True:
                 # Continuously listen for new turns/responses
                 turn = self.session.receive()
+                ai_transcript_buffer = ""
                 async for response in turn:
                     # Handle transcriptions from server_content
                     if hasattr(response, 'server_content') and response.server_content:
@@ -134,15 +135,18 @@ class VoiceChatConsumer(AsyncWebsocketConsumer):
                         # Handle output transcription (Rishi's speech)
                         if hasattr(server_content, 'output_transcription') and server_content.output_transcription:
                             if hasattr(server_content.output_transcription, 'text') and server_content.output_transcription.text:
-                                await self.send(text_data=json.dumps({
-                                    'type': 'ai_transcript',
-                                    'text': server_content.output_transcription.text
-                                }))
+                                ai_transcript_buffer += server_content.output_transcription.text
                     
                     # Handle audio data from Gemini
                     if response.data:
                         # Forward the received audio chunk directly to the client.
                         await self.send(bytes_data=response.data)
+                
+                if ai_transcript_buffer:
+                    await self.send(text_data=json.dumps({
+                        'type': 'ai_transcript',
+                        'text': ai_transcript_buffer
+                    }))
         except Exception as e:
             # Connection closed or error - silently handle it
             print(f"Gemini session error: {e}")
