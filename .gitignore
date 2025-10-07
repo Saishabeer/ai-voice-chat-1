@@ -4,17 +4,26 @@
 .venv/
 venv/
 
- # Django
- db.sqlite3
+# Django
+db.sqlite3
+*.log
 
- # Media files
- media/
+# Media and Static files
+/media/
+/staticfiles/
 
- # IDE
- .idea/
-.vscode/
-
-# Python cache
+# Python build artifacts
 __pycache__/
 *.py[cod]
 *$py.class
+*.egg-info/
+build/
+dist/
+
+# IDE
+.idea/
+.vscode/
+
+# Testing
+.coverage
+htmlcov/
