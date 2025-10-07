@@ -27,7 +27,7 @@
 <button id="talkBtn">🎙️ Start Live Chat</button>
 
 <script>
-let socket = new WebSocket("ws://127.0.0.1:8000/ws/voice/");
+let socket = new WebSocket(`ws://${'{{ websocket_host }}'}/ws/voice/`);
 socket.binaryType = 'arraybuffer';
 
 let audioContext;

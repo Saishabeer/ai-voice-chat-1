@@ -1,2 +1,13 @@
-.env
-env/
+ #Environment
+ .env
+ env/
+
+ # Django
+ db.sqlite3
+ __pycache__/
+
+ # Media files
+ media/
+
+ # IDE
+ .idea/

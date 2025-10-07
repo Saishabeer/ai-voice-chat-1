@@ -140,3 +140,6 @@ if not os.path.exists(MEDIA_ROOT):
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# WebSocket host for the frontend
+WEBSOCKET_HOST = os.getenv("WEBSOCKET_HOST", "127.0.0.1:8000")

@@ -14,7 +14,9 @@ genai.configure(api_key=os.getenv("API_KEY"))
 
 def chat_page(request):
     """Renders chat page with audio upload and TTS reply."""
-    context = {}
+    context = {
+        "websocket_host": settings.WEBSOCKET_HOST,
+    }
 
     if request.method == "POST" and request.FILES.get("audio"):
         audio_file = request.FILES["audio"]
