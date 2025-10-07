@@ -1,13 +1,20 @@
- #Environment
+# Environments
  .env
  env/
+.venv/
+venv/
 
  # Django
  db.sqlite3
- __pycache__/
 
  # Media files
  media/
 
  # IDE
  .idea/
+.vscode/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
